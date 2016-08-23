@@ -5,7 +5,6 @@ import calendar
 import sys
 import time
 import math
-import geopy
 from peewee import SqliteDatabase, InsertQuery, \
     IntegerField, CharField, DoubleField, BooleanField, \
     DateTimeField, CompositeKey, fn
