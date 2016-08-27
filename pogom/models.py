@@ -252,7 +252,7 @@ class Pokemon(BaseModel):
 
         s = list(query.dicts())
 
-        #From testing the average radius multiplier for a circle to approximate the hex is 120m
+        # From testing the average radius multiplier for a circle to approximate the hex is 120m
         step_distance = steps * 120
         # Filter to spawns which actually fall in the hex locations
         # This loop is about as non-pythonic as you can get, I bet.
