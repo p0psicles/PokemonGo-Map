@@ -5,7 +5,7 @@ import calendar
 import sys
 import gc
 import time
-import math
+import geopy
 from peewee import SqliteDatabase, InsertQuery, \
     IntegerField, CharField, DoubleField, BooleanField, \
     DateTimeField, CompositeKey, fn
@@ -231,27 +231,18 @@ class Pokemon(BaseModel):
     def get_spawnpoints_in_hex(cls, center, steps):
         log.info('Finding spawn points {} steps away'.format(steps))
 
-        # work out hex bounding box
-        hdist = ((steps * 120.0) - 50.0) / 1000.0
-        vdist = ((steps * 105.0) - 35.0) / 1000.0
-        R = 6378.1  # km radius of the earth
-        vang = math.degrees(vdist / R)
-        hang = math.degrees(hdist / (R * math.cos(math.radians(center[0]))))
-        north = center[0] + vang
-        south = center[0] - vang
-        east = center[1] + hang
-        west = center[1] - hang
-        # get all spawns in that box
+        n, e, s, w = hex_bounds(center, steps)
+
         query = (Pokemon
                  .select(Pokemon.latitude.alias('lat'),
                          Pokemon.longitude.alias('lng'),
                          ((Pokemon.disappear_time.minute * 60) + Pokemon.disappear_time.second).alias('time'),
                          Pokemon.spawnpoint_id
                          ))
-        query = (query.where((Pokemon.latitude <= north) &
-                             (Pokemon.latitude >= south) &
-                             (Pokemon.longitude >= west) &
-                             (Pokemon.longitude <= east)
+        query = (query.where((Pokemon.latitude <= n) &
+                             (Pokemon.latitude >= s) &
+                             (Pokemon.longitude >= w) &
+                             (Pokemon.longitude <= e)
                              ))
         # Sqlite doesn't support distinct on columns
         if args.db_type == 'mysql':
@@ -260,24 +251,26 @@ class Pokemon(BaseModel):
             query = query.group_by(Pokemon.spawnpoint_id)
 
         s = list(query.dicts())
-        # for each spawn work out if it is in the hex (clipping the diagonals)
-        trueSpawns = []
-        for spawn in s:
-            spawn['time'] = (spawn['time'] + 2700) % 3600
-            # get the offset from the center of each spawn in km
-            offset = [math.radians(spawn['lat'] - center[0]) * R, math.radians(spawn['lng'] - center[1]) * (R * math.cos(math.radians(center[0])))]
-            # check agains the 4 lines that make up the diagonals
-            if (offset[1] + (offset[0] * 0.5)) > hdist:  # too far ne
-                continue
-            if (offset[1] - (offset[0] * 0.5)) > hdist:  # too far se
-                continue
-            if ((offset[0] * 0.5) - offset[1]) > hdist:  # too far nw
-                continue
-            if ((0 - offset[1]) - (offset[0] * 0.5)) > hdist:  # too far sw
-                continue
-            # if it gets to here its  a good spawn
-            trueSpawns.append(spawn)
-        return trueSpawns
+
+        #From testing the average radius multiplier for a circle to approximate the hex is 120m
+        step_distance = steps * 120
+        # Filter to spawns which actually fall in the hex locations
+        # This loop is about as non-pythonic as you can get, I bet.
+        # Oh well. Now slightly modified.
+        filtered = []
+        for idx, sp in enumerate(s):
+            if geopy.distance.distance(hl, (sp['lat'], sp['lng'])).meters <= step_distance:
+                filtered.append(s[idx])
+
+        # at this point, 'time' is DISAPPEARANCE time, we're going to morph it to APPEARANCE time
+        for location in filtered:
+            # examples: time    shifted
+            #           0       (   0 + 2700) = 2700 % 3600 = 2700 (0th minute to 45th minute, 15 minutes prior to appearance as time wraps around the hour)
+            #           1800    (1800 + 2700) = 4500 % 3600 =  900 (30th minute, moved to arrive at 15th minute)
+            # todo: this DOES NOT ACCOUNT for pokemons that appear sooner and live longer, but you'll _always_ have at least 15 minutes, so it works well enough
+            location['time'] = (location['time'] + 2700) % 3600
+
+        return filtered
 
 
 class Pokestop(BaseModel):
