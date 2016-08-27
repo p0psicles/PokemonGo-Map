@@ -254,9 +254,8 @@ class Pokemon(BaseModel):
 
         # From testing the average radius multiplier for a circle to approximate the hex is 120m
         step_distance = steps * 120
-        # Filter to spawns which actually fall in the hex locations
-        # This loop is about as non-pythonic as you can get, I bet.
-        # Oh well. Now slightly modified.
+        # Compare spawnpoint list to a circle with radius steps * 120
+        # Uses the direct geopy distance between the center and the spawnpoint.
         filtered = []
         for idx, sp in enumerate(s):
             if geopy.distance.distance(center, (sp['lat'], sp['lng'])).meters <= step_distance:
