@@ -259,7 +259,7 @@ class Pokemon(BaseModel):
         # Oh well. Now slightly modified.
         filtered = []
         for idx, sp in enumerate(s):
-            if geopy.distance.distance(hl, (sp['lat'], sp['lng'])).meters <= step_distance:
+            if geopy.distance.distance(center, (sp['lat'], sp['lng'])).meters <= step_distance:
                 filtered.append(s[idx])
 
         # at this point, 'time' is DISAPPEARANCE time, we're going to morph it to APPEARANCE time
