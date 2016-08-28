@@ -17,13 +17,14 @@ from threading import Thread, Event
 from queue import Queue
 from flask_cors import CORS
 from flask_cache_bust import init_cache_busting
+from flask.ext.login import LoginManager
 
 from pogom import config
 from pogom.app import Pogom
 from pogom.utils import get_args, get_encryption_lib_path
 
 from pogom.search import search_overseer_thread
-from pogom.models import init_database, create_tables, drop_tables, Pokemon, db_updater, clean_db_loop
+from pogom.models import init_database, create_tables, drop_tables, Pokemon, db_updater, clean_db_loop, User
 from pogom.webhook import wh_updater
 
 # Currently supported pgoapi
@@ -226,6 +227,19 @@ def main():
 
     app.set_search_control(pause_bit)
     app.set_location_queue(new_location_queue)
+
+    # Add login
+    # set the secret key.  keep this really secret:
+    app.secret_key = 'DuEkd*7d83Df3@#$)9fkD(8Fd(&d^ @#4kllz3'
+
+    # Prepare the LoginManager
+    login_manager = LoginManager()
+    login_manager.init_app(app)
+    login_manager.login_view = 'login'
+
+    @login_manager.user_loader
+    def load_user(uid):
+        return User.get_user(uid)
 
     config['ROOT_PATH'] = app.root_path
     config['GMAPS_KEY'] = args.gmaps_key

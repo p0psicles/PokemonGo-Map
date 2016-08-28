@@ -26,7 +26,7 @@ log = logging.getLogger(__name__)
 args = get_args()
 flaskDb = FlaskDB()
 
-db_schema_version = 6
+db_schema_version = 7
 
 
 class MyRetryDB(RetryOperationalError, PooledMySQLDatabase):
@@ -474,6 +474,37 @@ class Trainer(BaseModel):
     last_seen = DateTimeField(default=datetime.utcnow)
 
 
+class User(BaseModel):
+    __tablename__ = "users"
+    uid = IntegerField('user_id', primary_key=True)
+    username = CharField(max_length=50)
+    password = CharField(null=True)
+    admin = BooleanField(default=False)
+    email = CharField(max_length=255)
+    last_seen = DateTimeField(default=datetime.utcnow)
+    authenticated = BooleanField(default=True)
+
+    def is_active(self):
+        """True, as all users are active."""
+        return True
+
+    def get_id(self):
+        """Return the email address to satisfy Flask-Login's requirements."""
+        return self.uid
+
+    def is_authenticated(self):
+        """Return True if the user is authenticated."""
+        return self.authenticated
+
+    def is_anonymous(self):
+        """False, as anonymous users aren't supported."""
+        return False
+
+    @staticmethod
+    def get_user(uid):
+        return User.select().where(uid == int(uid)).first()
+
+
 class GymDetails(BaseModel):
     gym_id = CharField(primary_key=True, max_length=50)
     name = CharField()
@@ -827,13 +858,13 @@ def bulk_upsert(cls, data):
 def create_tables(db):
     db.connect()
     verify_database_schema(db)
-    db.create_tables([Pokemon, Pokestop, Gym, ScannedLocation, GymDetails, GymMember, GymPokemon, Trainer], safe=True)
+    db.create_tables([Pokemon, Pokestop, Gym, ScannedLocation, GymDetails, GymMember, GymPokemon, Trainer, User], safe=True)
     db.close()
 
 
 def drop_tables(db):
     db.connect()
-    db.drop_tables([Pokemon, Pokestop, Gym, ScannedLocation, Versions, GymDetails, GymMember, GymPokemon, Trainer], safe=True)
+    db.drop_tables([Pokemon, Pokestop, Gym, ScannedLocation, Versions, GymDetails, GymMember, GymPokemon, Trainer, User], safe=True)
     db.close()
 
 
@@ -906,3 +937,8 @@ def database_migrate(db, old_ver):
         migrate(
             migrator.add_column('gym', 'last_scanned', DateTimeField(null=True)),
         )
+
+    if old_ver < 7:
+        # We've added a User table, let's make sure it as the initial admin user.
+        admin_user = User(username='admin', password='admin', admin=True, email='admin@localhost', last_seen=time.time())
+        admin_user.save()

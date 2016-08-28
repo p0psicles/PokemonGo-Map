@@ -4,9 +4,11 @@
 import calendar
 import logging
 
-from flask import Flask, jsonify, render_template, request
+from flask import g, Flask, jsonify, render_template, request, redirect, url_for, flash
+from flask.ext.login import login_user, logout_user, current_user, login_required
 from flask.json import JSONEncoder
 from flask_compress import Compress
+from functools import wraps
 from datetime import datetime
 from s2sphere import LatLng
 from pogom.utils import get_args
@@ -14,7 +16,7 @@ from datetime import timedelta
 from collections import OrderedDict
 
 from . import config
-from .models import Pokemon, Gym, Pokestop, ScannedLocation
+from .models import (Pokemon, Gym, Pokestop, ScannedLocation, User)
 
 log = logging.getLogger(__name__)
 compress = Compress()
@@ -33,6 +35,8 @@ class Pogom(Flask):
         self.route("/search_control", methods=['GET'])(self.get_search_control)
         self.route("/search_control", methods=['POST'])(self.post_search_control)
         self.route("/stats", methods=['GET'])(self.get_stats)
+        self.route('/login', methods=['GET', 'POST'])(self.login)
+        self.route('/logout', methods=['GET'])(self.logout)
 
     def set_search_control(self, control):
         self.search_control = control
@@ -61,6 +65,7 @@ class Pogom(Flask):
             return jsonify({'message': 'invalid use of api'})
         return self.get_search_control()
 
+    @login_required
     def fullmap(self):
         args = get_args()
         fixed_display = "none" if args.fixed_location else "inline"
@@ -231,6 +236,23 @@ class Pogom(Flask):
                                gmaps_key=config['GMAPS_KEY'],
                                valid_input=self.get_valid_stat_input()
                                )
+
+    def login(self):
+        if request.method == 'GET':
+            return render_template('login.html')
+        username = request.form['username']
+        password = request.form['password']
+        registered_user = User.select().where(User.username == username, User.password == password).first()
+        if registered_user is None:
+            flash('Username or Password is invalid', 'error')
+            return redirect(url_for('login'))
+        login_user(registered_user)
+        flash('Logged in successfully')
+        return redirect(request.args.get('next') or url_for('fullmap'))
+
+    def logout(self):
+        logout_user()
+        return redirect(url_for('login'))
 
 
 class CustomJSONEncoder(JSONEncoder):
