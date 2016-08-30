@@ -15,15 +15,16 @@ from distutils.version import StrictVersion
 
 from threading import Thread, Event
 from queue import Queue
+from flask import g
 from flask_cors import CORS
 from flask_cache_bust import init_cache_busting
-from flask.ext.login import LoginManager
+from flask_login import LoginManager
 
 from pogom import config
 from pogom.app import Pogom
 from pogom.utils import get_args, get_encryption_lib_path
 
-from pogom.search import search_overseer_thread
+from pogom.search import search_overseer_thread, catch_pokemon_worker
 from pogom.models import init_database, create_tables, drop_tables, Pokemon, db_updater, clean_db_loop, User
 from pogom.webhook import wh_updater
 
@@ -195,6 +196,21 @@ def main():
         t.daemon = True
         t.start()
 
+    # WH Updates
+    catch_pokemon_queue = Queue()
+    
+    # Attach queue to Flask App
+    app.catch_pokemon_queue = catch_pokemon_queue
+
+    # Thread to process webhook updates
+    log.debug('Starting catch_pokemon worker thread')
+    t = Thread(target=catch_pokemon_worker, name='catch-pokemon', args=(args,
+                                                                        catch_pokemon_queue,
+                                                                        encryption_lib_path))
+    t.daemon = True
+    t.start()
+
+
     if not args.only_server:
         # Gather the pokemons!
 
@@ -235,11 +251,11 @@ def main():
     # Prepare the LoginManager
     login_manager = LoginManager()
     login_manager.init_app(app)
-    login_manager.login_view = 'login'
-
     @login_manager.user_loader
     def load_user(uid):
         return User.get_user(uid)
+    
+    login_manager.login_view = 'login'
 
     config['ROOT_PATH'] = app.root_path
     config['GMAPS_KEY'] = args.gmaps_key

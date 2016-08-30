@@ -481,7 +481,11 @@ class User(BaseModel):
     admin = BooleanField(default=False)
     email = CharField(max_length=255)
     last_seen = DateTimeField(default=datetime.utcnow)
-    authenticated = BooleanField(default=True)
+    authenticated = BooleanField(default=False)
+    max_workers = IntegerField()
+    catch_username = CharField(max_length=50)
+    catch_password = CharField(max_length=50)
+    catch_auth = CharField(max_length=50)
 
     def is_active(self):
         """True, as all users are active."""
@@ -498,10 +502,13 @@ class User(BaseModel):
     def is_anonymous(self):
         """False, as anonymous users aren't supported."""
         return False
+    
+    def get_pogo_cred(self):
+        return {'username': self.catch_username, 'password': self.catch_password, 'auth_service': self.catch_auth}
 
     @staticmethod
     def get_user(uid):
-        return User.select().where(uid == int(uid)).first()
+        return User.select().where(User.uid == int(uid)).first()
 
 
 class GymDetails(BaseModel):
@@ -939,5 +946,5 @@ def database_migrate(db, old_ver):
 
     if old_ver < 7:
         # We've added a User table, let's make sure it as the initial admin user.
-        admin_user = User(username='admin', password='admin', admin=True, email='admin@localhost', last_seen=time.time())
+        admin_user = User(username='admin', password='admin', admin=True, email='admin@localhost', last_seen=time.time(), max_workers=2)
         admin_user.save()

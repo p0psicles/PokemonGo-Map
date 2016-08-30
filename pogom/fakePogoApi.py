@@ -20,6 +20,9 @@ class FakePogoApi:
 
     def activate_signature(self, library):
         pass
+    
+    def walk_to(self, loc):
+        pass
 
     def set_position(self, lat, lng, alt):
         # meters radius (very, very rough approximation -- deal with it)

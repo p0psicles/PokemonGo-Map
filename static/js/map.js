@@ -847,6 +847,17 @@ function removePokemonMarker (encounterId) { // eslint-disable-line no-unused-va
   mapData.pokemons[encounterId].hidden = true
 }
 
+function getPokemon (encounterId) { // eslint-disable-line no-unused-vars
+	  var pokemon = mapData.pokemons[encounterId];
+	  data = {lat: pokemon.latitude,
+			  long: pokemon.longitude,
+			  spawn: pokemon.spawnpoint_id,
+			  encounterId: encounterId}
+      $.post('/get_pokemon', data).done(function () {
+          console.log('Went of searching for the pokemon');
+      })
+}
+
 function initMap () { // eslint-disable-line no-unused-vars
   map = new google.maps.Map(document.getElementById('map'), {
     center: {
@@ -1068,7 +1079,8 @@ function pokemonLabel (name, rarity, types, disappearTime, id, latitude, longitu
       <a href='javascript:excludePokemon(${id})'>Exclude</a>&nbsp;&nbsp
       <a href='javascript:notifyAboutPokemon(${id})'>Notify</a>&nbsp;&nbsp
       <a href='javascript:removePokemonMarker("${encounterId}")'>Remove</a>&nbsp;&nbsp
-      <a href='https://www.google.com/maps/dir/Current+Location/${latitude},${longitude}?hl=en' target='_blank' title='View in Maps'>Get directions</a>
+      <a href='https://www.google.com/maps/dir/Current+Location/${latitude},${longitude}?hl=en' target='_blank' title='View in Maps'>Get directions</a>&nbsp;&nbsp
+      <a href='javascript:getPokemon("${encounterId}")'>Get It!</a>
     </div>`
   return contentstring
 }

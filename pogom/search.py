@@ -35,16 +35,21 @@ from pgoapi.utilities import f2i
 from pgoapi import utilities as util
 from pgoapi.exceptions import AuthException
 
-from .models import parse_map, Pokemon, hex_bounds, GymDetails, parse_gyms
+from .models import parse_map, Pokemon, hex_bounds, GymDetails, parse_gyms, User
 from .transform import generate_location_steps
 from .fakePogoApi import FakePogoApi
 from .utils import now
+from .pokedex import pokedex
 
 import terminalsize
 
 log = logging.getLogger(__name__)
 
 TIMESTAMP = '\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000'
+
+# Map account id's to running workers. These workers should only work for these accounts
+# {worker_thread1: 1, worker_thread2: 1, worker_thread: 3: 2, worker_thread4: 2}.
+account_worker_mapping = {}
 
 
 # Apply a location jitter
@@ -683,3 +688,63 @@ def stagger_thread(args, account):
 
 class TooManyLoginAttempts(Exception):
     pass
+
+def catch_pokemon_worker(args, catch_pokemon_queue, encryption_lib_path):
+# The forever loop
+    while True:
+        try:
+            # Loop the queue
+            while True:
+                account, loc, spawn, step_location, encounterId = catch_pokemon_queue.get()
+                
+                if not account.get('username'):
+                    continue
+                
+                # Create the API instance this will use
+                if args.mock != '':
+                    api = FakePogoApi(args.mock)
+                else:
+                    api = PGoApi()
+                    api.config = {}
+                    api.config['GMAPS_API_KEY'] = args.gmaps_key
+                    api.config['USE_GOOGLE'] = False
+    
+                if args.proxy:
+                    api.set_proxy({'http': args.proxy, 'https': args.proxy})
+    
+                api.activate_signature(encryption_lib_path)
+    
+                
+                # Let the api know where we intend to be for this loop
+                api.set_position(*step_location)
+
+                # Ok, let's get started -- check our login status
+                check_login(args, account, api, step_location)
+                
+                # Let's walk to the pokemon's location
+                api.walk_to(loc, logging)
+                
+                map_dict = map_request(api, loc)
+                pokemon = filter_pokemon(map_dict, spawn)
+                if pokemon:
+                    catch_result = api.encounter_pokemon(pokemon)
+                    if catch_result['status'] == 1:
+                        logging.info('Catched Pokemon: %s at %s', pokedex[pokemon['pokemon_data']['pokemon_id']], loc)
+                    if catch_result['status'] == 3:
+                        logging.info('Pokemon Fled: %s at %s', pokedex[pokemon['pokemon_data']['pokemon_id']], loc)
+                    if not catch_result['status']:
+                        logging.info('Could not catch: %s at %s', pokedex[pokemon['pokemon_data']['pokemon_id']], loc)
+                else:
+                    logging.info('Could not locate pokemon at %s', loc)
+
+                catch_pokemon_queue.task_done()
+                time.sleep(10)
+        except Exception as e:
+            log.exception('Exception in catch_pokemon_worker: %s', e)
+    
+def filter_pokemon(map_dict, spawn):
+    cells = map_dict['responses']['GET_MAP_OBJECTS']['map_cells']
+    for cell in cells:
+        for p in cell.get('wild_pokemons', []):
+            if p['spawn_point_id'] == unicode(spawn):
+                return p

@@ -5,7 +5,7 @@ import calendar
 import logging
 
 from flask import g, Flask, jsonify, render_template, request, redirect, url_for, flash
-from flask.ext.login import login_user, logout_user, current_user, login_required
+from flask_login import login_user, logout_user, current_user, login_required, LoginManager
 from flask.json import JSONEncoder
 from flask_compress import Compress
 from functools import wraps
@@ -31,12 +31,15 @@ class Pogom(Flask):
         self.route("/raw_data", methods=['GET'])(self.raw_data)
         self.route("/loc", methods=['GET'])(self.loc)
         self.route("/next_loc", methods=['POST'])(self.next_loc)
+        self.route("/get_pokemon", methods=['POST'])(self.get_pokemon)
         self.route("/mobile", methods=['GET'])(self.list_pokemon)
         self.route("/search_control", methods=['GET'])(self.get_search_control)
         self.route("/search_control", methods=['POST'])(self.post_search_control)
         self.route("/stats", methods=['GET'])(self.get_stats)
         self.route('/login', methods=['GET', 'POST'])(self.login)
         self.route('/logout', methods=['GET'])(self.logout)
+        
+        self.catch_pokemon_queue = None # Always cleaner to initialize upfront
 
     def set_search_control(self, control):
         self.search_control = control
@@ -80,6 +83,7 @@ class Pogom(Flask):
                                search_control=search_display
                                )
 
+    @login_required
     def raw_data(self):
         d = {}
         swLat = request.args.get('swLat')
@@ -124,6 +128,7 @@ class Pogom(Flask):
 
         return jsonify(d)
 
+    @login_required
     def loc(self):
         d = {}
         d['lat'] = self.current_location[0]
@@ -131,6 +136,7 @@ class Pogom(Flask):
 
         return jsonify(d)
 
+    @login_required
     def next_loc(self):
         args = get_args()
         if args.fixed_location:
@@ -153,6 +159,21 @@ class Pogom(Flask):
             log.info('Changing next location: %s,%s', lat, lon)
             return self.loc()
 
+    @login_required
+    def get_pokemon(self):
+        args = get_args()
+        # from post requests
+        if request.form:
+            lat = request.form.get('lat', type=float)
+            lon = request.form.get('long', type=float)
+            spawn = request.form.get('spawn', type=str)
+            encounterId = request.form.get('encounterId', type=str)
+            
+            
+            self.catch_pokemon_queue.put((current_user.get_pogo_cred(), (lat, lon), spawn, self.current_location, encounterId))
+            return jsonify({'result': 'queued'})
+
+    @login_required
     def list_pokemon(self):
         # todo: check if client is android/iOS/Desktop for geolink, currently
         # only supports android
@@ -193,6 +214,7 @@ class Pogom(Flask):
                                origin_lat=lat,
                                origin_lng=lon)
 
+    @login_required
     def get_valid_stat_input(self):
         duration = request.args.get("duration", type=str)
         sort = request.args.get("sort", type=str)
@@ -229,6 +251,7 @@ class Pogom(Flask):
         valid_input["order"] = {"display": "Order", "items": valid_order}
         return valid_input
 
+    @login_required
     def get_stats(self):
         return render_template('statistics.html',
                                lat=self.current_location[0],
@@ -246,7 +269,7 @@ class Pogom(Flask):
         if registered_user is None:
             flash('Username or Password is invalid', 'error')
             return redirect(url_for('login'))
-        login_user(registered_user)
+        login_user(registered_user, remember=True)
         flash('Logged in successfully')
         return redirect(request.args.get('next') or url_for('fullmap'))
 
