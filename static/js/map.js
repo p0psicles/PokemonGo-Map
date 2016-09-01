@@ -29,6 +29,7 @@ var locationMarker
 var rangeMarkers = ['pokemon', 'pokestop', 'gym']
 var searchMarker
 var storeZoom = true
+var scanPath
 
 var noLabelsStyle = [{
   featureType: 'poi',
@@ -857,6 +858,7 @@ function initMap () { // eslint-disable-line no-unused-vars
     fullscreenControl: true,
     streetViewControl: false,
     mapTypeControl: false,
+    clickableIcons: false,
     mapTypeControlOptions: {
       style: google.maps.MapTypeControlStyle.DROPDOWN_MENU,
       position: google.maps.ControlPosition.RIGHT_TOP,
@@ -955,9 +957,6 @@ function createSearchMarker () {
     zIndex: google.maps.Marker.MAX_ZINDEX + 1
   })
 
-  if (!searchMarker.rangeCircle && isRangeActive(map)) {
-    searchMarker.rangeCircle = addRangeCircle(searchMarker, map, 'search')
-  }
   var oldLocation = null
   google.maps.event.addListener(searchMarker, 'dragstart', function () {
     oldLocation = searchMarker.getPosition()
@@ -968,9 +967,6 @@ function createSearchMarker () {
     changeSearchLocation(newLocation.lat(), newLocation.lng())
       .done(function () {
         oldLocation = null
-        if (searchMarker.rangeCircle && Store.get('showRanges')) {
-          searchMarker.rangeCircle.setCenter(newLocation)
-        }
       })
       .fail(function () {
         if (oldLocation) {
@@ -1191,6 +1187,29 @@ function pokestopLabel (expireTime, latitude, longitude) {
   return str
 }
 
+function formatSpawnTime (seconds) {
+  // the addition and modulo are required here because the db stores when a spawn disappears
+  // the subtraction to get the appearance time will knock seconds under 0 if the spawn happens in the previous hour
+  return ('0' + Math.floor(((seconds + 3600) % 3600) / 60)).substr(-2) + ':' + ('0' + seconds % 60).substr(-2)
+}
+function spawnpointLabel (item) {
+  var str = `
+    <div>
+      <b>Spawn Point</b>
+    </div>
+    <div>
+      Every hour from ${formatSpawnTime(item.time)} to ${formatSpawnTime(item.time + 900)}
+    </div>`
+
+  if (item.special) {
+    str += `
+      <div>
+        May appear as early as ${formatSpawnTime(item.time - 1800)}
+      </div>`
+  }
+  return str
+}
+
 function getGoogleSprite (index, sprite, displayHeight) {
   displayHeight = Math.max(displayHeight, 3)
   var scale = displayHeight / sprite.iconHeight
@@ -1215,20 +1234,33 @@ function addRangeCircle (marker, map, type, teamId) {
   var targetmap = null
   var circleCenter = new google.maps.LatLng(marker.position.lat(), marker.position.lng())
   var gymColors = ['#999999', '#0051CF', '#FF260E', '#FECC23'] // 'Uncontested', 'Mystic', 'Valor', 'Instinct']
-  var circleColor = '#cccccc'
   var teamColor = gymColors[0]
   if (teamId) teamColor = gymColors[teamId]
 
-  if (type === 'search') circleColor = '#333333'
-  if (type === 'pokemon') circleColor = '#C233F2'
-  if (type === 'pokestop') circleColor = '#3EB0FF'
-  if (type === 'gym') circleColor = teamColor
+  var range
+  var circleColor
+
+  // handle each type of marker and be explicit about the range circle attributes
+  switch (type) {
+    case 'pokemon':
+      circleColor = '#C233F2'
+      range = 40 // pokemon appear at 40m and then you can move away. still have to be 40m close to see it though, so ignore the further disappear distance
+      break
+    case 'pokestop':
+      circleColor = '#3EB0FF'
+      range = 40
+      break
+    case 'gym':
+      circleColor = teamColor
+      range = 40
+      break
+  }
 
   if (map) targetmap = map
 
   var rangeCircleOpts = {
     map: targetmap,
-    radius: 40,    // 40 meters
+    radius: range, // meters
     strokeWeight: 1,
     strokeColor: circleColor,
     strokeOpacity: 0.9,
@@ -1382,17 +1414,47 @@ function setupScannedMarker (item) {
   return marker
 }
 
+function getColorBySpawnTime (value) {
+  var now = new Date()
+  var seconds = now.getMinutes() * 60 + now.getSeconds()
+
+  // account for hour roll-over
+  if (seconds < 900 && value > 2700) {
+    seconds += 3600
+  } else if (seconds > 2700 && value < 900) {
+    value += 3600
+  }
+
+  var diff = (seconds - value)
+  var hue = 275 // purple when spawn is neither about to spawn nor active
+
+  if (diff >= 0 && diff <= 900) { // green to red over 15 minutes of active spawn
+    hue = (1 - (diff / 60 / 15)) * 120
+  } else if (diff < 0 && diff > -300) { // light blue to dark blue over 5 minutes til spawn
+    hue = ((1 - (-diff / 60 / 5)) * 50) + 200
+  }
+
+  return ['hsl(', hue, ',100%,50%)'].join('')
+}
+
 function setupSpawnpointMarker (item) {
   var circleCenter = new google.maps.LatLng(item['latitude'], item['longitude'])
 
   var marker = new google.maps.Circle({
     map: map,
-    clickable: false,
     center: circleCenter,
     radius: 5, // metres
-    fillColor: 'blue',
+    fillColor: getColorBySpawnTime(item.time),
     strokeWeight: 1
   })
+
+  marker.infoWindow = new google.maps.InfoWindow({
+    content: spawnpointLabel(item),
+    disableAutoPan: true,
+    position: circleCenter
+  })
+
+  addListeners(marker)
 
   return marker
 }
@@ -1654,7 +1716,9 @@ function processSpawnpoints (i, item) {
   var id = item['spawnpoint_id']
 
   if (id in mapData.spawnpoints) {
-    // In the future: maybe show how long till spawnpoint activates?
+    mapData.spawnpoints[id].marker.setOptions({
+      fillColor: getColorBySpawnTime(item['time'])
+    })
   } else { // add marker to map and item to dict
     if (item.marker) {
       item.marker.setMap(null)
@@ -1677,10 +1741,29 @@ function updateMap () {
     showInBoundsMarkers(mapData.pokestops, 'pokestop')
     showInBoundsMarkers(mapData.scanned, 'scanned')
     showInBoundsMarkers(mapData.spawnpoints, 'inbound')
+//    drawScanPath(result.scanned);
     clearStaleMarkers()
     if ($('#stats').hasClass('visible')) {
       countMarkers()
     }
+  })
+}
+
+function drawScanPath (points) { // eslint-disable-line no-unused-vars
+  var scanPathPoints = []
+  $.each(points, function (idx, point) {
+    scanPathPoints.push({lat: point['latitude'], lng: point['longitude']})
+  })
+  if (scanPath) {
+    scanPath.setMap(null)
+  }
+  scanPath = new google.maps.Polyline({
+    path: scanPathPoints,
+    geodesic: true,
+    strokeColor: '#FF0000',
+    strokeOpacity: 1.0,
+    strokeWeight: 2,
+    map: map
   })
 }
 
@@ -1853,7 +1936,6 @@ function changeLocation (lat, lng) {
   changeSearchLocation(lat, lng).done(function () {
     map.setCenter(loc)
     searchMarker.setPosition(loc)
-    if (searchMarker.rangeCircle) searchMarker.rangeCircle.setCenter(loc)
   })
 }
 
@@ -2098,6 +2180,10 @@ $(function () {
     $selectExclude.val(Store.get('remember_select_exclude')).trigger('change')
     $selectPokemonNotify.val(Store.get('remember_select_notify')).trigger('change')
     $selectRarityNotify.val(Store.get('remember_select_rarity_notify')).trigger('change')
+
+    if (isTouchDevice()) {
+      $('.select2-search input').prop('readonly', true)
+    }
   })
 
   // run interval timers to regularly update map and timediffs
