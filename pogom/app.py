@@ -7,6 +7,7 @@ import logging
 from flask import g, Flask, jsonify, render_template, request, redirect, url_for, flash
 from flask_login import login_user, logout_user, current_user, login_required, LoginManager
 from flask.json import JSONEncoder
+from flask_socketio import send
 from flask_compress import Compress
 from functools import wraps
 from datetime import datetime
@@ -40,6 +41,7 @@ class Pogom(Flask):
         self.route('/logout', methods=['GET'])(self.logout)
         
         self.catch_pokemon_queue = None # Always cleaner to initialize upfront
+        self.log_message_object = None
 
     def set_search_control(self, control):
         self.search_control = control
@@ -126,6 +128,9 @@ class Pogom(Flask):
         if request.args.get('spawnpoints', 'false') == 'true':
             d['spawnpoints'] = Pokemon.get_spawnpoints(swLat, swLng, neLat, neLng)
 
+        if request.args.get('logmessages', 'false') == 'true':
+            d['logmessages'] = self.log_message_object.flush()
+        
         return jsonify(d)
 
     @login_required
@@ -276,6 +281,7 @@ class Pogom(Flask):
     def logout(self):
         logout_user()
         return redirect(url_for('login'))
+
 
 
 class CustomJSONEncoder(JSONEncoder):

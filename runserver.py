@@ -25,7 +25,7 @@ from pogom.app import Pogom
 from pogom.utils import get_args, get_encryption_lib_path
 
 from pogom.search import search_overseer_thread, catch_pokemon_worker
-from pogom.models import init_database, create_tables, drop_tables, Pokemon, db_updater, clean_db_loop, User
+from pogom.models import init_database, create_tables, drop_tables, Pokemon, db_updater, clean_db_loop, User, LogMessages
 from pogom.webhook import wh_updater
 
 # Currently supported pgoapi
@@ -201,11 +201,16 @@ def main():
     
     # Attach queue to Flask App
     app.catch_pokemon_queue = catch_pokemon_queue
+    
+    # Setup the message object
+    message_obj = LogMessages()
+    app.log_message_object = message_obj
 
-    # Thread to process webhook updates
+    # Thread to process catch_pokemon requests
     log.debug('Starting catch_pokemon worker thread')
     t = Thread(target=catch_pokemon_worker, name='catch-pokemon', args=(args,
                                                                         catch_pokemon_queue,
+                                                                        message_obj,
                                                                         encryption_lib_path))
     t.daemon = True
     t.start()

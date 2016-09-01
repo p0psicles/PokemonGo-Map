@@ -1530,6 +1530,7 @@ function loadRawData () {
   var loadPokestops = Store.get('showPokestops')
   var loadScanned = Store.get('showScanned')
   var loadSpawnpoints = Store.get('showSpawnpoints')
+  var logMessages = true
 
   var bounds = map.getBounds()
   var swPoint = bounds.getSouthWest()
@@ -1548,6 +1549,7 @@ function loadRawData () {
       'gyms': loadGyms,
       'scanned': loadScanned,
       'spawnpoints': loadSpawnpoints,
+      'logmessages': logMessages,
       'swLat': swLat,
       'swLng': swLng,
       'neLat': neLat,
@@ -1584,6 +1586,10 @@ function processPokemons (i, item) {
       mapData.pokemons[item['encounter_id']] = item
     }
   }
+}
+
+function processLogMessage (i, item) {
+	sendNotification(item.subject, item.message, 'static/images/yes16.png', item.latitude, item.longitude)
 }
 
 function processPokestops (i, item) {
@@ -1683,6 +1689,7 @@ function updateMap () {
     $.each(result.gyms, processGyms)
     $.each(result.scanned, processScanned)
     $.each(result.spawnpoints, processSpawnpoints)
+    $.each(result.logmessages, processLogMessage)
     showInBoundsMarkers(mapData.pokemons, 'pokemon')
     showInBoundsMarkers(mapData.lurePokemons, 'pokemon')
     showInBoundsMarkers(mapData.gyms, 'gym')

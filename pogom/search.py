@@ -30,7 +30,8 @@ from operator import itemgetter
 from threading import Thread
 from queue import Queue, Empty
 
-from pgoapi import PGoApi
+#from pgoapi import PGoApi
+from apiwrapper import ApiWrapper
 from pgoapi.utilities import f2i
 from pgoapi import utilities as util
 from pgoapi.exceptions import AuthException
@@ -440,7 +441,7 @@ def search_worker_thread(args, account, search_items_queue, pause_bit, encryptio
             if args.mock != '':
                 api = FakePogoApi(args.mock)
             else:
-                api = PGoApi()
+                api = ApiWrapper(args)
 
             if args.proxy:
                 api.set_proxy({'http': args.proxy, 'https': args.proxy})
@@ -689,7 +690,7 @@ def stagger_thread(args, account):
 class TooManyLoginAttempts(Exception):
     pass
 
-def catch_pokemon_worker(args, catch_pokemon_queue, encryption_lib_path):
+def catch_pokemon_worker(args, catch_pokemon_queue, log_message_obj, encryption_lib_path):
 # The forever loop
     while True:
         try:
@@ -704,10 +705,7 @@ def catch_pokemon_worker(args, catch_pokemon_queue, encryption_lib_path):
                 if args.mock != '':
                     api = FakePogoApi(args.mock)
                 else:
-                    api = PGoApi()
-                    api.config = {}
-                    api.config['GMAPS_API_KEY'] = args.gmaps_key
-                    api.config['USE_GOOGLE'] = False
+                    api = ApiWrapper(args)
     
                 if args.proxy:
                     api.set_proxy({'http': args.proxy, 'https': args.proxy})
@@ -722,26 +720,36 @@ def catch_pokemon_worker(args, catch_pokemon_queue, encryption_lib_path):
                 check_login(args, account, api, step_location)
                 
                 # Let's walk to the pokemon's location
-                api.walk_to(loc, logging)
+                api.walk_to(loc, 20)
                 
                 map_dict = map_request(api, loc)
                 pokemon = filter_pokemon(map_dict, spawn)
                 if pokemon:
+                    subject = ''
+                    message = ''
+                    logging.info('Lets take it easy, and wait for 5 secs')
+                    time.sleep(5)
                     catch_result = api.encounter_pokemon(pokemon)
                     if catch_result['status'] == 1:
-                        logging.info('Catched Pokemon: %s at %s', pokedex[pokemon['pokemon_data']['pokemon_id']], loc)
+                        subject = 'Catched Pokemon!'
+                        message = '{0} at {1}'.format(pokedex[pokemon['pokemon_data']['pokemon_id']], loc)
                     if catch_result['status'] == 3:
-                        logging.info('Pokemon Fled: %s at %s', pokedex[pokemon['pokemon_data']['pokemon_id']], loc)
+                        subject = 'Fled Pokemon!'
+                        message = '{0} at {1}'.format(pokedex[pokemon['pokemon_data']['pokemon_id']], loc)
                     if not catch_result['status']:
-                        logging.info('Could not catch: %s at %s', pokedex[pokemon['pokemon_data']['pokemon_id']], loc)
+                        subject = 'Could not catch!'
+                        message = '{0} at {1}'.format(pokedex[pokemon['pokemon_data']['pokemon_id']], loc)
+                    logging.info('%s %s', subject, message)
+                    log_message_obj.add_message(subject, message, loc[0], loc[1])
                 else:
                     logging.info('Could not locate pokemon at %s', loc)
-
+                    log_message_obj.add_message('Could not locate!', 'at %s' % (str(loc)), loc[0], loc[1])
                 catch_pokemon_queue.task_done()
                 time.sleep(10)
         except Exception as e:
             log.exception('Exception in catch_pokemon_worker: %s', e)
-    
+            
+        
 def filter_pokemon(map_dict, spawn):
     cells = map_dict['responses']['GET_MAP_OBJECTS']['map_cells']
     for cell in cells:

@@ -510,7 +510,42 @@ class User(BaseModel):
     def get_user(uid):
         return User.select().where(User.uid == int(uid)).first()
 
+class Message(object):
+    def __init__(self, subject, message, msg_index, latitude=None, longitude=None):
+        self.subject = subject
+        self.message = message
+        self.latitude = latitude
+        self.longitude = longitude
+        self.msg_index = msg_index
+    
+    def __dict__(self):
+        return {'subject': self.subject,
+                'message': self.message,
+                'msg_index': self.msg_index,
+                'latitude': self.latitude,
+                'longitude': self.longitude}
 
+
+class LogMessages(dict):
+    """I know this isn't really a model, but still might be a nice location for it"""
+
+    def __init__(self):
+        self.messages = []
+        self.index = 0
+    
+    def add_message(self, subject, message, latitude=None, longitude=None):
+        self.index += 1
+        msg = Message(subject, message, self.index, latitude, longitude)
+        self.messages.append(msg)
+    
+    def pop_message(self):
+        return self.messages.pop(0)
+    
+    def flush(self):
+        messages = self.messages[:]
+        self.messages = []
+        return [message.__dict__() for message in messages]
+        
 class GymDetails(BaseModel):
     gym_id = CharField(primary_key=True, max_length=50)
     name = CharField()
